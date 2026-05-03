@@ -685,7 +685,7 @@ class Admin(User):
         return [
             "DASHBOARD", 
             "Register Patient", "View All Patients", "Update Patient", "Delete Patient", "See Patient Report", "Manage Appointments",  
-            "Order Tests", "Review Results", "Track Samples", 
+            "Review Results", "Track Samples", 
             "Approve Results", "Manage Inventory", "Staff Overview", "Performance Reports",
             "Perform Tests", "Track Sample Flow", "Equipment Logs",
             "Attendance Management", "Payroll Management", "Leave Management",
@@ -772,11 +772,10 @@ class Doctor(User):
     def __init__(self, id: str, name: str, email: str):
         super().__init__(id, name, email, "Doctor")
     def get_menu_options(self) -> List[str]:
-        return ["DASHBOARD", "Order Tests", "Review Results", "Track Samples", "Request Leave", "PROFILE", "LOGOUT"]
+        return ["DASHBOARD", "Review Results", "Track Samples", "Request Leave", "PROFILE", "LOGOUT"]
     def handle_menu_choice(self, choice_index: int, ui: 'ConsoleUI', system: 'ILMSSystem'):
         opt = self.get_menu_options()[choice_index]
-        if opt == "Order Tests": ui.handle_order_tests()
-        elif opt == "Review Results": ui.handle_review_results(self.id)
+        if opt == "Review Results": ui.handle_review_results(self.id)
         elif opt == "Track Samples": ui.handle_track_samples()
         elif opt == "Request Leave": ui.handle_request_leave()
         else: super().handle_menu_choice(choice_index, ui, system)
@@ -1085,12 +1084,13 @@ class ILMSSystem:
             
             # Leave metrics
             leave_balance = self.leave_manager.get_leave_balance(emp_id)
-            leave_used = leave_balance.used_annual_leave + leave_balance.used_sick_leave if leave_balance else 0
+            # Use the attribute names defined in LeaveBalance
+            leave_used = (leave_balance.used_annual + leave_balance.used_sick) if leave_balance else 0
             
             metrics[emp_id] = {
                 "name": emp.name,
                 "role": emp.role,
-                "attendance_rate": (attendance_summary['total_present'] / 30) * 100 if attendance_summary['total_present'] > 0 else 0,
+                "attendance_rate": (attendance_summary.get('total_present', 0) / 30) * 100 if attendance_summary.get('total_present', 0) > 0 else 0,
                 "average_salary": avg_salary,
                 "leave_used": leave_used,
                 "performance_score": self._calculate_performance_score(attendance_summary, avg_salary, leave_used)
@@ -1719,7 +1719,17 @@ class ConsoleUI:
 
         choice_idx = self.navigate_menu_modal("Submit Sample", options)
         if choice_idx != -1 and choice_idx != len(options) - 1:
-            pending_tests[choice_idx].status = "In Progress"
+            t = pending_tests[choice_idx]
+            t.status = "In Progress"
+            if self.system.db_operations.connection:
+                try:
+                    self.system.db_operations.save_test(
+                        t.id, t.name, t.price, t.test_group_name, t.specimen.id,
+                        t.status, t.result, t.patient_id, t.technician_id
+                    )
+                except Exception as e:
+                    self.display_message("Error", f"Failed to persist sample: {e}")
+                    return
             self.display_message("Success", "Sample submitted to lab.")
 
     def handle_view_metrics(self):
@@ -1743,8 +1753,12 @@ class ConsoleUI:
                 if "Total Expenses" not in self.system.finances: self.system.finances["Total Expenses"] = 0.0
                 self.system.finances["Total Expenses"] += amount
                 self.system.finances[f"Expense: {desc}"] = amount
+                # Persist to DB if available
+                if self.system.db_operations.connection:
+                    self.system.db_operations.save_expense(datetime.date.today().isoformat(), amount, desc)
                 self.display_message("Success", "Expense added.")
-            except: self.display_message("Error", "Invalid amount.")
+            except:
+                self.display_message("Error", "Invalid amount.")
 
     def handle_view_compliance(self):
         options = self.system.compliance_reports + ["Add New Report", "Cancel"]
@@ -2017,49 +2031,29 @@ class ConsoleUI:
             today = datetime.date.today()
             now = datetime.datetime.now().time()
             
-            # Get or create today's attendance record
-            existing_records = self.system.attendance.records.get(emp_id, [])
-            today_record = None
-            for rec in existing_records:
-                if rec.date == today:
-                    today_record = rec
-                    break
-            
+            # Find any existing record for this employee for today
+            today_record = next((r for r in self.system.attendance.records if r.employee_id == emp_id and r.date == today), None)
+
             if action_idx == 0:
                 # Clock In
                 if not today_record:
                     today_record = AttendanceRecord(emp_id, today, check_in=now, check_out=None, status="Present")
-                    if emp_id not in self.system.attendance.records:
-                        self.system.attendance.records[emp_id] = []
-                    self.system.attendance.records[emp_id].append(today_record)
+                    # Use Attendance.add_record so it persists and deduplicates
+                    self.system.attendance.add_record(today_record)
                 else:
                     today_record.check_in = now
-                
-                if self.system.db_operations.connection:
-                    worked_hours = self._calculate_worked_hours(today_record.check_in, today_record.check_out, today_record.status)
-                    self.system.db_operations.save_attendance_record(
-                        emp_id, today.isoformat(), 
-                        today_record.check_in.isoformat() if today_record.check_in else None,
-                        today_record.check_out.isoformat() if today_record.check_out else None,
-                        today_record.status, worked_hours
-                    )
+                    self.system.attendance.add_record(today_record)
+
                 self.display_message("Success", f"Clocked in at {now.strftime('%H:%M')}")
-            
             else:
                 # Clock Out
                 if not today_record:
                     self.display_message("Error", "Please clock in first.")
                     return
-                
+
                 today_record.check_out = now
-                if self.system.db_operations.connection:
-                    worked_hours = self._calculate_worked_hours(today_record.check_in, today_record.check_out, today_record.status)
-                    self.system.db_operations.save_attendance_record(
-                        emp_id, today.isoformat(),
-                        today_record.check_in.isoformat() if today_record.check_in else None,
-                        today_record.check_out.isoformat() if today_record.check_out else None,
-                        today_record.status, worked_hours
-                    )
+                # Ensure worked hours and persistence via add_record
+                self.system.attendance.add_record(today_record)
                 self.display_message("Success", f"Clocked out at {now.strftime('%H:%M')}")
 
     def handle_payroll_management(self):
@@ -2101,7 +2095,8 @@ class ConsoleUI:
             emp_options = [self.system.employees[e].name for e in emp_list] + ["All Employees", "Back"]
             emp_idx = self.navigate_menu_modal("Select Employee", emp_options)
             
-            if emp_idx == -1 or emp_idx == len(emp_options) - 2:
+            # If user cancelled or chose Back (last option), return
+            if emp_idx == -1 or emp_idx == len(emp_options) - 1:
                 return
             
             today = datetime.date.today()
