@@ -297,6 +297,121 @@ ALL_CREATE_TABLES = [
     CREATE_PERFORMANCE_METRICS_TABLE,
 ]
 
+# Additional DB objects: stored procedures, functions, views, triggers, constraints and sample DML.
+# These are executed after table creation. Where objects require multiple statements they are
+# provided as strings intended to be executed with a client that supports multi-statement execution.
+
+CREATE_PROC_CREATE_INVOICE = """
+CREATE PROCEDURE sp_create_invoice(
+    IN p_invoice_id VARCHAR(50),
+    IN p_patient_id VARCHAR(50),
+    IN p_patient_name VARCHAR(100),
+    IN p_fbr_code VARCHAR(100)
+)
+BEGIN
+    DECLARE total DECIMAL(12,2) DEFAULT 0;
+    SELECT IFNULL(SUM(price),0) INTO total FROM tests WHERE patient_id = p_patient_id;
+    INSERT INTO invoices (id, patient_id, patient_name, date, total_amount, fbr_code)
+    VALUES (p_invoice_id, p_patient_id, p_patient_name, NOW(), total, p_fbr_code)
+    ON DUPLICATE KEY UPDATE
+        patient_id = VALUES(patient_id),
+        patient_name = VALUES(patient_name),
+        date = VALUES(date),
+        total_amount = VALUES(total_amount),
+        fbr_code = VALUES(fbr_code);
+
+    INSERT IGNORE INTO invoice_tests (invoice_id, test_id)
+    SELECT p_invoice_id, id FROM tests WHERE patient_id = p_patient_id;
+END
+"""
+
+CREATE_FUNC_CALC_TAX = """
+CREATE FUNCTION fn_calc_income_tax(gross DECIMAL(12,2))
+RETURNS DECIMAL(12,2) DETERMINISTIC
+BEGIN
+    DECLARE tax DECIMAL(12,2) DEFAULT 0;
+    IF gross < 50000 THEN
+        SET tax = gross * 0.05;
+    ELSEIF gross < 100000 THEN
+        SET tax = gross * 0.10;
+    ELSE
+        SET tax = gross * 0.15;
+    END IF;
+    RETURN tax;
+END
+"""
+
+CREATE_VIEW_PATIENT_TEST_SUMMARY = """
+CREATE OR REPLACE VIEW patient_test_summary AS
+SELECT
+    p.id AS patient_id,
+    p.name AS patient_name,
+    COUNT(t.id) AS total_tests,
+    IFNULL(SUM(t.price),0) AS total_spent
+FROM patients p
+LEFT JOIN tests t ON p.id = t.patient_id
+GROUP BY p.id, p.name
+"""
+
+CREATE_VIEW_PAYROLL_SUMMARY = """
+CREATE OR REPLACE VIEW payroll_summary AS
+SELECT pr.employee_id, pr.employee_name, pr.period_month, pr.period_year, pr.gross_salary, pr.net_salary
+FROM payroll_records pr
+JOIN employee_salaries es ON es.employee_id = pr.employee_id
+"""
+
+CREATE_TRIGGER_AFTER_INVOICE = """
+CREATE TRIGGER trg_after_invoice_insert
+AFTER INSERT ON invoices
+FOR EACH ROW
+BEGIN
+    -- Mark tests as invoiced when an invoice is created for the patient
+    UPDATE tests SET status = 'Invoiced' WHERE patient_id = NEW.patient_id AND status = 'Pending';
+END
+"""
+
+CREATE_TRIGGER_AFTER_TEST_UPDATE = """
+CREATE TRIGGER trg_after_test_update
+AFTER UPDATE ON tests
+FOR EACH ROW
+BEGIN
+    -- When a test status becomes Completed, create a simple patient report entry
+    IF NEW.status = 'Completed' AND (OLD.status IS NULL OR OLD.status <> 'Completed') THEN
+        INSERT INTO patient_reports (patient_id, report_text)
+        VALUES (NEW.patient_id, CONCAT('Test ', NEW.name, ' completed. Result: ', IFNULL(NEW.result, 'N/A')));
+    END IF;
+END
+"""
+
+# Add a simple CHECK constraint for invoice total (MySQL >= 8.0.16 enforces CHECK)
+ALTER_INVOICE_CHECK = """
+ALTER TABLE invoices
+ADD CONSTRAINT chk_invoices_total_nonneg CHECK (total_amount >= 0)
+"""
+
+# Sample DML demonstrating joins/subqueries, idempotent where possible.
+SAMPLE_DML_INSERTS = """
+-- Example: ensure a sample patient exists
+INSERT INTO patients (id, name, email) VALUES ('P_SEED_001', 'Seed Patient', 'seed@ilms.local')
+ON DUPLICATE KEY UPDATE name=VALUES(name), email=VALUES(email);
+
+-- Example: create an invoice using the stored procedure (safe to call repeatedly)
+CALL sp_create_invoice('INV_SEED_001', 'P_SEED_001', 'Seed Patient', 'FBR-SEED-001');
+"""
+
+# Collect all extension SQLs in order. Items that require multi-statement execution should be executed
+# using a connector that supports multi=True. Store as tuples (sql, multi_flag) where needed.
+ALL_DB_EXTENSIONS = [
+    (CREATE_PROC_CREATE_INVOICE, True),
+    (CREATE_FUNC_CALC_TAX, True),
+    (CREATE_VIEW_PATIENT_TEST_SUMMARY, False),
+    (CREATE_VIEW_PAYROLL_SUMMARY, False),
+    (CREATE_TRIGGER_AFTER_INVOICE, True),
+    (CREATE_TRIGGER_AFTER_TEST_UPDATE, True),
+    (ALTER_INVOICE_CHECK, False),
+    (SAMPLE_DML_INSERTS, True),
+]
+
 # Query Templates (INSERT, UPDATE, SELECT)
 
 # Role Management

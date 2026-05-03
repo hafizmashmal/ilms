@@ -198,6 +198,28 @@ class DatabaseManager:
         
         self.connection.commit()
         cursor.close()
+        # Execute additional DB objects (procedures, functions, views, triggers, sample DML)
+        try:
+            cursor = self.connection.cursor()
+            for ext in getattr(sql_queries, 'ALL_DB_EXTENSIONS', []):
+                try:
+                    sql_item = ext
+                    multi = False
+                    if isinstance(ext, tuple) and len(ext) >= 2:
+                        sql_item, multi = ext[0], bool(ext[1])
+                    if multi:
+                        # Execute multi-statement objects (procedures/functions/triggers)
+                        for res in cursor.execute(sql_item, multi=True):
+                            pass
+                    else:
+                        cursor.execute(sql_item)
+                except Exception as e:
+                    # Log and continue; some objects may already exist or not be supported
+                    self.logger.debug(f"DB extension execution error (continuing): {e}")
+            self.connection.commit()
+            cursor.close()
+        except Exception as e:
+            self.logger.error(f"Error creating DB extensions: {e}")
         self._ensure_roles()
         self._ensure_role_permissions()
         self._ensure_user_password_columns()
