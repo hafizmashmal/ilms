@@ -4,7 +4,9 @@ CREATE TABLE IF NOT EXISTS expenses (
     id INT AUTO_INCREMENT PRIMARY KEY,
     expense_date DATE NOT NULL,
     amount DECIMAL(12,2) NOT NULL,
-    description VARCHAR(255) NOT NULL
+    description VARCHAR(255) NOT NULL,
+    created_by VARCHAR(50) DEFAULT NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB
 """
 """
@@ -209,7 +211,11 @@ CREATE TABLE IF NOT EXISTS employee_leave_balances (
 CREATE_INVENTORY_TABLE = """
 CREATE TABLE IF NOT EXISTS inventory (
     item_name VARCHAR(100) PRIMARY KEY,
-    quantity INT NOT NULL
+    quantity INT NOT NULL,
+    created_by VARCHAR(50) DEFAULT NULL,
+    last_updated_by VARCHAR(50) DEFAULT NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (last_updated_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB
 """
 
@@ -218,8 +224,9 @@ CREATE TABLE IF NOT EXISTS appointments (
     id INT AUTO_INCREMENT PRIMARY KEY,
     appointment_datetime DATETIME NOT NULL,
     patient_name VARCHAR(255) NOT NULL,
-    created_by VARCHAR(50),
-    status VARCHAR(50) NOT NULL DEFAULT 'Scheduled'
+    created_by VARCHAR(50) DEFAULT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'Scheduled',
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB
 """
 
@@ -227,7 +234,9 @@ CREATE_EQUIPMENT_LOGS_TABLE = """
 CREATE TABLE IF NOT EXISTS equipment_logs (
     id INT AUTO_INCREMENT PRIMARY KEY,
     entry TEXT NOT NULL,
-    entry_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    entry_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(50) DEFAULT NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB
 """
 
@@ -235,14 +244,18 @@ CREATE_COMPLIANCE_REPORTS_TABLE = """
 CREATE TABLE IF NOT EXISTS compliance_reports (
     id INT AUTO_INCREMENT PRIMARY KEY,
     report_text TEXT NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(50) DEFAULT NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB
 """
 
 CREATE_DAILY_REVENUE_HISTORY_TABLE = """
 CREATE TABLE IF NOT EXISTS daily_revenue_history (
     revenue_date DATE PRIMARY KEY,
-    revenue DECIMAL(12,2) NOT NULL
+    revenue DECIMAL(12,2) NOT NULL,
+    recorded_by VARCHAR(50) DEFAULT NULL,
+    FOREIGN KEY (recorded_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB
 """
 
@@ -251,7 +264,9 @@ CREATE TABLE IF NOT EXISTS performance_metrics (
     id INT AUTO_INCREMENT PRIMARY KEY,
     metric_name VARCHAR(100) NOT NULL,
     metric_value DECIMAL(12,2) NOT NULL,
-    metric_date DATE NOT NULL
+    metric_date DATE NOT NULL,
+    employee_id VARCHAR(50) DEFAULT NULL,
+    FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB
 """
 
