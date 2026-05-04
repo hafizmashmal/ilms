@@ -143,9 +143,9 @@ class DatabaseManager:
         # Require environment variables for security
         self.host = os.environ.get("ILMS_DB_HOST", "193.203.166.222")
         self.port = int(os.environ.get("ILMS_DB_PORT", "3306"))
-        self.database = os.environ.get("ILMS_DB_NAME", "u176582439_ilms")
-        self.username = os.environ.get("ILMS_DB_USER", "u176582439_ilms")
-        self.password = os.environ.get("ILMS_DB_PASSWORD", "Ashmal...S/*-1")
+        self.database = os.environ.get("ILMS_DB_NAME", "")
+        self.username = os.environ.get("ILMS_DB_USER", "")
+        self.password = os.environ.get("ILMS_DB_PASSWORD", "")
         
         self.encryptor = DataEncryptor()
         self.connection = None

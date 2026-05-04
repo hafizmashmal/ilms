@@ -8,9 +8,9 @@ def test_database_connection():
         connection = mysql.connector.connect(
             host="193.203.166.222",
             port=3306,
-            database="u176582439_ilms",
-            user="u176582439_ilms",
-            password="Ashmal...S/*-1" # Put your password here
+            database="",
+            user="",
+            password="" 
         )
 
         # Check if the connection was successful
